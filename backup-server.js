@@ -6,61 +6,56 @@ import cors from 'cors';
 const app = express();
 const PORT = 3001;
 
-// Configurar pasta de backups
-const BACKUP_DIR = process.env.BACKUP_DIR || '/home/laiz/Downloads';
+// Configurar pasta e arquivo alvo
+const BACKUP_DIR = '/home/laiz/Downloads';
+const TARGET_FILE = path.join(BACKUP_DIR, 'mecanica_dados.json');
+
+// Para testes no Windows, tentar usar uma pasta local se a do Linux não existir
+const IS_WINDOWS = process.platform === 'win32';
+const FINAL_DIR = IS_WINDOWS ? path.join(process.cwd(), 'backups') : BACKUP_DIR;
+const FINAL_FILE = path.join(FINAL_DIR, 'mecanica_dados.json');
 
 // Middleware
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 
-console.log(`📁 Pasta de backups: ${BACKUP_DIR}`);
+console.log(`📁 Pasta de dados configurada para: ${FINAL_DIR}`);
 
 // Garantir que a pasta existe
-if (!fs.existsSync(BACKUP_DIR)) {
-  fs.mkdirSync(BACKUP_DIR, { recursive: true });
-  console.log(`✓ Pasta criada: ${BACKUP_DIR}`);
+if (!fs.existsSync(FINAL_DIR)) {
+  fs.mkdirSync(FINAL_DIR, { recursive: true });
+  console.log(`✓ Pasta criada: ${FINAL_DIR}`);
 }
 
 /**
  * GET /api/latest-backup
- * Retorna o arquivo JSON mais recente da pasta de backups
+ * Retorna o arquivo de dados
  */
 app.get('/api/latest-backup', (req, res) => {
   try {
-    const files = fs.readdirSync(BACKUP_DIR)
-      .filter(f => f.startsWith('mecanica-backup-') && f.endsWith('.json'))
-      .map(f => ({
-        name: f,
-        path: path.join(BACKUP_DIR, f),
-        time: fs.statSync(path.join(BACKUP_DIR, f)).mtimeMs
-      }))
-      .sort((a, b) => b.time - a.time);
-
-    if (files.length === 0) {
-      console.log('⚠️  Nenhum backup encontrado');
+    if (!fs.existsSync(FINAL_FILE)) {
+      console.log('⚠️ Arquivo de dados não encontrado (primeira vez)');
       return res.json({ data: null, message: 'Nenhum backup encontrado' });
     }
 
-    const latestFile = files[0];
-    const data = fs.readFileSync(latestFile.path, 'utf-8');
+    const data = fs.readFileSync(FINAL_FILE, 'utf-8');
     const parsed = JSON.parse(data);
 
-    console.log(`✓ Backup carregado: ${latestFile.name}`);
+    console.log(`✓ Dados carregados: ${FINAL_FILE}`);
     res.json({
       success: true,
-      file: latestFile.name,
-      data: parsed,
-      timestamp: latestFile.time
+      file: 'mecanica_dados.json',
+      data: parsed
     });
   } catch (error) {
-    console.error('❌ Erro ao carregar backup:', error.message);
+    console.error('❌ Erro ao carregar dados:', error.message);
     res.status(500).json({ success: false, error: error.message });
   }
 });
 
 /**
  * POST /api/save-backup
- * Salva um novo arquivo JSON com timestamp
+ * Salva/Atualiza o arquivo JSON
  */
 app.post('/api/save-backup', (req, res) => {
   try {
@@ -70,67 +65,28 @@ app.post('/api/save-backup', (req, res) => {
       return res.status(400).json({ success: false, error: 'Campo "data" é obrigatório' });
     }
 
-    // Criar nome do arquivo com timestamp
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-    const filename = `mecanica-backup-${timestamp}.json`;
-    const filepath = path.join(BACKUP_DIR, filename);
+    // Escrever (substituir) arquivo único
+    fs.writeFileSync(FINAL_FILE, JSON.stringify(data, null, 2), 'utf-8');
 
-    // Escrever arquivo
-    fs.writeFileSync(filepath, JSON.stringify(data, null, 2), 'utf-8');
-
-    console.log(`✓ Backup salvo: ${filename}`);
+    console.log(`✓ Dados atualizados em: ${FINAL_FILE}`);
     res.json({
       success: true,
-      file: filename,
-      path: filepath,
-      timestamp: new Date().toISOString()
+      file: 'mecanica_dados.json'
     });
   } catch (error) {
-    console.error('❌ Erro ao salvar backup:', error.message);
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
-
-/**
- * GET /api/backups
- * Lista todos os backups disponíveis
- */
-app.get('/api/backups', (req, res) => {
-  try {
-    const files = fs.readdirSync(BACKUP_DIR)
-      .filter(f => f.startsWith('mecanica-backup-') && f.endsWith('.json'))
-      .map(f => {
-        const filepath = path.join(BACKUP_DIR, f);
-        const stats = fs.statSync(filepath);
-        return {
-          name: f,
-          size: stats.size,
-          timestamp: stats.mtime.toISOString()
-        };
-      })
-      .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
-
-    console.log(`✓ Listados ${files.length} backups`);
-    res.json({ success: true, backups: files });
-  } catch (error) {
-    console.error('❌ Erro ao listar backups:', error.message);
+    console.error('❌ Erro ao salvar dados:', error.message);
     res.status(500).json({ success: false, error: error.message });
   }
 });
 
 /**
  * GET /api/health
- * Verifica se o servidor está rodando
  */
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+  res.json({ status: 'ok' });
 });
 
 app.listen(PORT, () => {
-  console.log(`\n🚀 Servidor de backup rodando em: http://localhost:${PORT}`);
-  console.log(`📦 Endpoints disponíveis:`);
-  console.log(`   GET  /api/health          - Verifica status`);
-  console.log(`   GET  /api/latest-backup   - Carrega backup mais recente`);
-  console.log(`   POST /api/save-backup     - Salva novo backup`);
-  console.log(`   GET  /api/backups         - Lista todos os backups\n`);
+  console.log(`\n🚀 Servidor de dados rodando em: http://localhost:${PORT}`);
+  console.log(`📦 Arquivo de banco de dados central: ${FINAL_FILE}\n`);
 });
