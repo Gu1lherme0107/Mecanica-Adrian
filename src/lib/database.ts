@@ -11,11 +11,18 @@ export async function getDb(): Promise<Database> {
     locateFile: () => '/sql-wasm.wasm',
   });
 
-  // Try to load from IndexedDB primeiro
-  let savedData = await loadFromIndexedDB();
+  // Tentar carregar na seguinte ordem:
+  // 1. Servidor de backup (arquivo JSON no filesystem)
+  let backupData = await loadFromBackupServer();
+  let savedData = backupData ? null : await loadFromIndexedDB(); // Se temos backup do servidor, ignorar IndexedDB
   
-  // Se não encontrou no IndexedDB, tentar localStorage (fallback)
-  if (!savedData) {
+  // 2. IndexedDB (sessão anterior)
+  if (!savedData && !backupData) {
+    savedData = await loadFromIndexedDB();
+  }
+  
+  // 3. localStorage (fallback)
+  if (!savedData && !backupData) {
     console.log('📂 Tentando carregar backup do localStorage...');
     savedData = loadFromLocalStorage();
   }
@@ -31,6 +38,9 @@ export async function getDb(): Promise<Database> {
       await clearIndexedDB();
       clearLocalStorage();
     }
+  } else if (backupData) {
+    console.log('🆕 Criando novo banco e importando backup do servidor...');
+    db = new SQL.Database();
   } else {
     console.log('🆕 Criando novo banco de dados');
     db = new SQL.Database();
@@ -123,6 +133,49 @@ export async function getDb(): Promise<Database> {
     }
   }
 
+  // Se carregamos um backup do servidor, importar os dados agora
+  if (backupData) {
+    try {
+      const { servicos, agenda, estoque } = backupData;
+      
+      // Limpar tabelas
+      db.run('DELETE FROM servicos');
+      db.run('DELETE FROM agenda');
+      db.run('DELETE FROM estoque');
+
+      // Importar servicos
+      for (const s of servicos || []) {
+        db.run(
+          `INSERT INTO servicos (id, cliente_nome, cliente_telefone, carro_modelo, data_chegada, data_entrega, orcamento_privado, status_servico, valor_total, valor_pago, valor_mao_obra, peca_list, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [s.id, s.cliente_nome, s.cliente_telefone, s.carro_modelo, s.data_chegada, s.data_entrega, s.orcamento_privado, s.status_servico, s.valor_total, s.valor_pago, s.valor_mao_obra || 0, JSON.stringify(s.peca_list || []), s.created_at]
+        );
+      }
+
+      // Importar agenda
+      for (const a of agenda || []) {
+        db.run(
+          `INSERT INTO agenda (id, data_agendada, cliente_nome, cliente_telefone, carro_modelo, concluido, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          [a.id, a.data_agendada, a.cliente_nome, a.cliente_telefone, a.carro_modelo, a.concluido ? 1 : 0, a.created_at]
+        );
+      }
+
+      // Importar estoque
+      for (const e of estoque || []) {
+        db.run(
+          `INSERT INTO estoque (id, nome_peca, quantidade, valor_custo, created_at)
+           VALUES (?, ?, ?, ?, ?)`,
+          [e.id, e.nome_peca, e.quantidade, e.valor_custo, e.created_at]
+        );
+      }
+
+      console.log(`✓ Dados importados do servidor: ${servicos?.length || 0} serviços, ${agenda?.length || 0} agendas, ${estoque?.length || 0} peças`);
+    } catch (importError) {
+      console.error('❌ Erro ao importar backup do servidor:', importError);
+    }
+  }
+
   await saveToIndexedDB();
   console.log('🔄 Banco de dados pronto e persistência ativada');
   return db;
@@ -212,10 +265,12 @@ export function saveToIndexedDB(): Promise<void> {
           // Usar Uint8Array em vez de Blob
           store.put(data, DB_KEY);
           
-          tx.oncomplete = () => {
+          tx.oncomplete = async () => {
             console.log('✓ Banco salvo no IndexedDB');
             // Também salvar em localStorage como backup
             saveToLocalStorage();
+            // Também salvar no servidor (arquivo JSON)
+            await saveToBackupServer();
             
             // Disparar evento de sucesso
             window.dispatchEvent(new CustomEvent('db-sync-success', {
@@ -312,6 +367,60 @@ function loadFromIndexedDB(): Promise<ArrayBuffer | null> {
       resolve(null);
     }
   });
+}
+
+async function loadFromBackupServer(): Promise<any | null> {
+  try {
+    const response = await fetch('http://localhost:3001/api/latest-backup', {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json' }
+    });
+    
+    if (!response.ok) {
+      console.log('⚠️ Servidor de backup não disponível');
+      return null;
+    }
+    
+    const result = await response.json();
+    if (!result.success || !result.data) {
+      console.log('⚠️ Nenhum backup encontrado no servidor');
+      return null;
+    }
+    
+    // Retornar os dados JSON para serem importados
+    const { servicos, agenda, estoque } = result.data;
+    console.log(`✓ Backup carregado do servidor: ${result.file} (${servicos.length} serviços, ${agenda.length} agendas, ${estoque.length} peças)`);
+    
+    return result.data;
+  } catch (error) {
+    console.log('⚠️ Erro ao carregar do servidor de backup:', (error as any).message);
+    return null;
+  }
+}
+
+async function saveToBackupServer(): Promise<void> {
+  try {
+    const backup = await exportBackup();
+    const data = JSON.parse(backup);
+    
+    const response = await fetch('http://localhost:3001/api/save-backup', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ data })
+    });
+    
+    if (!response.ok) {
+      console.warn('⚠️ Erro ao salvar no servidor de backup');
+      return;
+    }
+    
+    const result = await response.json();
+    if (result.success) {
+      console.log('✓ Banco salvo no servidor: ' + result.file);
+    }
+  } catch (error) {
+    console.warn('⚠️ Erro ao conectar ao servidor de backup:', (error as any).message);
+  }
 }
 
 // ===== SERVICOS =====
