@@ -15,14 +15,15 @@ async function getDb(): Promise<Database> {
   if (savedData) {
     try {
       db = new SQL.Database(new Uint8Array(savedData));
-      console.log('Banco carregado do IndexedDB');
+      console.log('✓ Banco carregado com sucesso do IndexedDB');
     } catch (e) {
-      console.log('Erro ao carregar banco, criando novo');
+      console.log('⚠️ Erro ao carregar banco anterior, criando novo');
       db = new SQL.Database();
       // Limpar IndexedDB corrompido
       await clearIndexedDB();
     }
   } else {
+    console.log('🆕 Criando novo banco de dados');
     db = new SQL.Database();
   }
 
@@ -114,6 +115,7 @@ async function getDb(): Promise<Database> {
   }
 
   await saveToIndexedDB();
+  console.log('🔄 Banco de dados pronto e persistência ativada');
   return db;
 }
 
@@ -128,42 +130,106 @@ function clearIndexedDB(): Promise<void> {
 function saveToIndexedDB(): Promise<void> {
   return new Promise((resolve, reject) => {
     if (!db) return resolve();
-    const data = db.export();
-    const request = indexedDB.open('MecanicaERP', 1);
-    request.onupgradeneeded = () => {
-      const idb = request.result;
-      if (!idb.objectStoreNames.contains('database')) {
-        idb.createObjectStore('database');
-      }
-    };
-    request.onsuccess = () => {
-      const idb = request.result;
-      const tx = idb.transaction('database', 'readwrite');
-      tx.objectStore('database').put(data.buffer, DB_KEY);
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error);
-    };
-    request.onerror = () => reject(request.error);
+    try {
+      const data = db.export();
+      const request = indexedDB.open('MecanicaERP', 1);
+      
+      request.onupgradeneeded = (event) => {
+        const idb = (event.target as IDBOpenDBRequest).result;
+        if (!idb.objectStoreNames.contains('database')) {
+          idb.createObjectStore('database');
+        }
+      };
+      
+      request.onsuccess = () => {
+        const idb = request.result;
+        try {
+          const tx = idb.transaction('database', 'readwrite');
+          const store = tx.objectStore('database');
+          // Converter Uint8Array para Blob para melhor compatibilidade
+          const blob = new Blob([data], { type: 'application/octet-stream' });
+          store.put(blob, DB_KEY);
+          
+          tx.oncomplete = () => {
+            console.log('✓ Banco salvo no IndexedDB');
+            resolve();
+          };
+          tx.onerror = () => {
+            console.error('❌ Erro ao salvar no IndexedDB:', tx.error);
+            reject(tx.error);
+          };
+        } catch (e) {
+          console.error('❌ Erro na transação:', e);
+          reject(e);
+        }
+      };
+      
+      request.onerror = () => {
+        console.error('❌ Erro ao abrir IndexedDB:', request.error);
+        reject(request.error);
+      };
+    } catch (e) {
+      console.error('❌ Erro ao exportar banco:', e);
+      reject(e);
+    }
   });
 }
 
 function loadFromIndexedDB(): Promise<ArrayBuffer | null> {
   return new Promise((resolve) => {
-    const request = indexedDB.open('MecanicaERP', 1);
-    request.onupgradeneeded = () => {
-      const idb = request.result;
-      if (!idb.objectStoreNames.contains('database')) {
-        idb.createObjectStore('database');
-      }
-    };
-    request.onsuccess = () => {
-      const idb = request.result;
-      const tx = idb.transaction('database', 'readonly');
-      const getReq = tx.objectStore('database').get(DB_KEY);
-      getReq.onsuccess = () => resolve(getReq.result || null);
-      getReq.onerror = () => resolve(null);
-    };
-    request.onerror = () => resolve(null);
+    try {
+      const request = indexedDB.open('MecanicaERP', 1);
+      
+      request.onupgradeneeded = (event) => {
+        const idb = (event.target as IDBOpenDBRequest).result;
+        if (!idb.objectStoreNames.contains('database')) {
+          idb.createObjectStore('database');
+        }
+      };
+      
+      request.onsuccess = () => {
+        const idb = request.result;
+        try {
+          const tx = idb.transaction('database', 'readonly');
+          const getReq = tx.objectStore('database').get(DB_KEY);
+          
+          getReq.onsuccess = () => {
+            const result = getReq.result;
+            if (result instanceof Blob) {
+              result.arrayBuffer().then((buffer) => {
+                console.log('✓ Banco carregado do IndexedDB');
+                resolve(buffer);
+              }).catch((e) => {
+                console.error('❌ Erro ao ler Blob:', e);
+                resolve(null);
+              });
+            } else if (result && result instanceof ArrayBuffer) {
+              console.log('✓ Banco carregado do IndexedDB (ArrayBuffer)');
+              resolve(result);
+            } else {
+              console.log('⚠️ Banco não encontrado no IndexedDB (primeira execução)');
+              resolve(null);
+            }
+          };
+          
+          getReq.onerror = () => {
+            console.error('❌ Erro ao ler do IndexedDB:', getReq.error);
+            resolve(null);
+          };
+        } catch (e) {
+          console.error('❌ Erro na transação de leitura:', e);
+          resolve(null);
+        }
+      };
+      
+      request.onerror = () => {
+        console.error('❌ Erro ao abrir IndexedDB para leitura:', request.error);
+        resolve(null);
+      };
+    } catch (e) {
+      console.error('❌ Erro geral no loadFromIndexedDB:', e);
+      resolve(null);
+    }
   });
 }
 
