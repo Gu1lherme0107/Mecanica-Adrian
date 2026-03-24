@@ -92,6 +92,11 @@ export default function Dashboard() {
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium text-foreground truncate">{s.carro_modelo || 'Sem modelo'}</p>
                       <p className="text-xs text-muted-foreground truncate">{s.cliente_nome || 'Sem nome'}</p>
+                      {s.valor_pago < s.valor_total && (
+                        <p className="text-xs text-destructive font-medium mt-1">
+                          ⚠️ Falta: R$ {(s.valor_total - s.valor_pago).toFixed(2)}
+                        </p>
+                      )}
                     </div>
                     <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${statusColors[s.status_servico] || ''}`}>
                       {s.status_servico}

@@ -13,27 +13,76 @@ async function getDb(): Promise<Database> {
   // Try to load from IndexedDB
   const savedData = await loadFromIndexedDB();
   if (savedData) {
-    db = new SQL.Database(new Uint8Array(savedData));
+    try {
+      db = new SQL.Database(new Uint8Array(savedData));
+      console.log('Banco carregado do IndexedDB');
+    } catch (e) {
+      console.log('Erro ao carregar banco, criando novo');
+      db = new SQL.Database();
+      // Limpar IndexedDB corrompido
+      await clearIndexedDB();
+    }
   } else {
     db = new SQL.Database();
   }
 
-  // Create tables
-  db.run(`
-    CREATE TABLE IF NOT EXISTS servicos (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      cliente_nome TEXT DEFAULT '',
-      cliente_telefone TEXT DEFAULT '',
-      carro_modelo TEXT DEFAULT '',
-      data_chegada TEXT DEFAULT '',
-      data_entrega TEXT DEFAULT '',
-      orcamento_privado TEXT DEFAULT '',
-      status_servico TEXT DEFAULT 'Aguardando',
-      valor_total REAL DEFAULT 0,
-      valor_pago REAL DEFAULT 0,
-      created_at TEXT DEFAULT (datetime('now','localtime'))
-    );
+  // Sempre garantir que as tabelas têm o schema correto
+  try {
+    // Tentar executar uma query com a nova coluna
+    db.exec(`SELECT valor_mao_obra FROM servicos LIMIT 0`);
+    console.log('Tabela servicos já tem coluna valor_mao_obra');
+  } catch (e) {
+    console.log('Migrando schema da tabela servicos...');
+    // Se falhar, tabela precisa ser migrada
+    try {
+      // Backup dos dados antigos
+      const servicos = db.exec(`SELECT * FROM servicos`)[0]?.values || [];
+      console.log('Dados antigos:', servicos.length);
+      
+      // Deletar tabela antiga
+      db.run(`DROP TABLE IF EXISTS servicos;`);
+      
+      // Criar tabela nova com schema correto
+      db.run(`
+        CREATE TABLE servicos (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          cliente_nome TEXT DEFAULT '',
+          cliente_telefone TEXT DEFAULT '',
+          carro_modelo TEXT DEFAULT '',
+          data_chegada TEXT DEFAULT '',
+          data_entrega TEXT DEFAULT '',
+          orcamento_privado TEXT DEFAULT '',
+          status_servico TEXT DEFAULT 'Aguardando',
+          valor_total REAL DEFAULT 0,
+          valor_pago REAL DEFAULT 0,
+          valor_mao_obra REAL DEFAULT 0,
+          peca_list TEXT DEFAULT '[]',
+          created_at TEXT DEFAULT (datetime('now','localtime'))
+        );
+      `);
+      
+      // Restaurar dados antigos se houver
+      if (servicos.length > 0) {
+        for (const row of servicos) {
+          db.run(
+            `INSERT INTO servicos (id, cliente_nome, cliente_telefone, carro_modelo, data_chegada, data_entrega, orcamento_privado, status_servico, valor_total, valor_pago, valor_mao_obra, peca_list, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, '[]', ?)`,
+            [row[0], row[1], row[2], row[3], row[4], row[5], row[6], row[7], row[8], row[9], row[10] || new Date().toISOString()]
+          );
+        }
+      }
+      console.log('Migração concluída');
+    } catch (migError) {
+      console.error('Erro na migração:', migError);
+      // Se mesmo assim falhar, criar tabelas novas do zero
+      try {
+        db.run(`DROP TABLE IF EXISTS servicos;`);
+      } catch (e) { }
+    }
+  }
 
+  // Criar tabelas se não existirem
+  db.run(`
     CREATE TABLE IF NOT EXISTS agenda (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       data_agendada TEXT DEFAULT '',
@@ -55,6 +104,14 @@ async function getDb(): Promise<Database> {
 
   await saveToIndexedDB();
   return db;
+}
+
+function clearIndexedDB(): Promise<void> {
+  return new Promise((resolve) => {
+    const request = indexedDB.deleteDatabase('MecanicaERP');
+    request.onsuccess = () => resolve();
+    request.onerror = () => resolve();
+  });
 }
 
 function saveToIndexedDB(): Promise<void> {
@@ -112,9 +169,9 @@ export async function getServicos(search?: string) {
 export async function addServico(s: Partial<Servico>) {
   const d = await getDb();
   d.run(
-    `INSERT INTO servicos (cliente_nome, cliente_telefone, carro_modelo, data_chegada, data_entrega, orcamento_privado, status_servico, valor_total, valor_pago)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [s.cliente_nome || '', s.cliente_telefone || '', s.carro_modelo || '', s.data_chegada || '', s.data_entrega || '', s.orcamento_privado || '', s.status_servico || 'Aguardando', s.valor_total || 0, s.valor_pago || 0]
+    `INSERT INTO servicos (cliente_nome, cliente_telefone, carro_modelo, data_chegada, data_entrega, orcamento_privado, status_servico, valor_total, valor_pago, valor_mao_obra, peca_list)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [s.cliente_nome || '', s.cliente_telefone || '', s.carro_modelo || '', s.data_chegada || '', s.data_entrega || '', s.orcamento_privado || '', s.status_servico || 'Aguardando', s.valor_total || 0, s.valor_pago || 0, (s as any).valor_mao_obra || 0, JSON.stringify((s as any).peca_list || [])]
   );
   await saveToIndexedDB();
 }
@@ -122,8 +179,8 @@ export async function addServico(s: Partial<Servico>) {
 export async function updateServico(id: number, s: Partial<Servico>) {
   const d = await getDb();
   d.run(
-    `UPDATE servicos SET cliente_nome=?, cliente_telefone=?, carro_modelo=?, data_chegada=?, data_entrega=?, orcamento_privado=?, status_servico=?, valor_total=?, valor_pago=? WHERE id=?`,
-    [s.cliente_nome || '', s.cliente_telefone || '', s.carro_modelo || '', s.data_chegada || '', s.data_entrega || '', s.orcamento_privado || '', s.status_servico || 'Aguardando', s.valor_total || 0, s.valor_pago || 0, id]
+    `UPDATE servicos SET cliente_nome=?, cliente_telefone=?, carro_modelo=?, data_chegada=?, data_entrega=?, orcamento_privado=?, status_servico=?, valor_total=?, valor_pago=?, valor_mao_obra=?, peca_list=? WHERE id=?`,
+    [s.cliente_nome || '', s.cliente_telefone || '', s.carro_modelo || '', s.data_chegada || '', s.data_entrega || '', s.orcamento_privado || '', s.status_servico || 'Aguardando', s.valor_total || 0, s.valor_pago || 0, (s as any).valor_mao_obra || 0, JSON.stringify((s as any).peca_list || []), id]
   );
   await saveToIndexedDB();
 }
@@ -204,7 +261,8 @@ export async function getServicosNoPatio() {
 
 export async function getAgendaHoje() {
   const d = await getDb();
-  const hoje = new Date().toISOString().split('T')[0];
+  const now = new Date();
+  const hoje = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
   return d.exec(`SELECT * FROM agenda WHERE data_agendada = '${hoje}' ORDER BY id ASC`)[0]?.values.map(rowToAgenda) || [];
 }
 
@@ -248,6 +306,8 @@ export interface Servico {
   status_servico: string;
   valor_total: number;
   valor_pago: number;
+  valor_mao_obra?: number;
+  peca_list?: Array<{ nome: string; valor: number }>;
   created_at: string;
 }
 
@@ -270,12 +330,41 @@ export interface Estoque {
 }
 
 function rowToServico(row: any[]): Servico {
-  return {
-    id: row[0] as number, cliente_nome: row[1] as string, cliente_telefone: row[2] as string,
-    carro_modelo: row[3] as string, data_chegada: row[4] as string, data_entrega: row[5] as string,
-    orcamento_privado: row[6] as string, status_servico: row[7] as string,
-    valor_total: row[8] as number, valor_pago: row[9] as number, created_at: row[10] as string,
-  };
+  const peca_list_str = row[11];
+  try {
+    return {
+      id: row[0] as number, 
+      cliente_nome: row[1] as string, 
+      cliente_telefone: row[2] as string,
+      carro_modelo: row[3] as string, 
+      data_chegada: row[4] as string, 
+      data_entrega: row[5] as string,
+      orcamento_privado: row[6] as string, 
+      status_servico: row[7] as string,
+      valor_total: row[8] as number, 
+      valor_pago: row[9] as number, 
+      valor_mao_obra: row[10] ? (row[10] as number) : 0,
+      peca_list: peca_list_str ? JSON.parse(peca_list_str as string) : [], 
+      created_at: row[12] as string,
+    };
+  } catch (e) {
+    // Fallback para linhas antigas sem as novas colunas
+    return {
+      id: row[0] as number, 
+      cliente_nome: row[1] as string, 
+      cliente_telefone: row[2] as string,
+      carro_modelo: row[3] as string, 
+      data_chegada: row[4] as string, 
+      data_entrega: row[5] as string,
+      orcamento_privado: row[6] as string, 
+      status_servico: row[7] as string,
+      valor_total: row[8] as number, 
+      valor_pago: row[9] as number, 
+      valor_mao_obra: 0,
+      peca_list: [], 
+      created_at: row[10] as string,
+    };
+  }
 }
 
 function rowToAgenda(row: any[]): Agenda {

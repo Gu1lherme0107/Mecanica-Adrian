@@ -6,6 +6,7 @@ import { Plus, Minus, Trash2, X } from 'lucide-react';
 
 export default function EstoquePage() {
   const [items, setItems] = useState<Estoque[]>([]);
+  const [searchTerm, setSearchTerm] = useState('');
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ nome_peca: '', quantidade: 0, valor_custo: 0 });
 
@@ -16,6 +17,11 @@ export default function EstoquePage() {
   }
 
   async function handleAdd() {
+    if (!form.nome_peca.trim()) {
+      alert("Por favor, informe o nome da peça.");
+      return;
+    }
+    
     await addEstoque(form);
     setForm({ nome_peca: '', quantidade: 0, valor_custo: 0 });
     setShowForm(false);
@@ -41,6 +47,13 @@ export default function EstoquePage() {
         </Button>
       </div>
 
+      <Input 
+        placeholder="Pesquisar Estoque..." 
+        value={searchTerm} 
+        onChange={(e) => setSearchTerm(e.target.value)}
+        className="h-10"
+      />
+
       {showForm && (
         <div className="rounded-xl border bg-card p-5 space-y-3 animate-fade-in">
           <div className="grid gap-3 sm:grid-cols-3">
@@ -55,7 +68,13 @@ export default function EstoquePage() {
       <div className="grid gap-3 sm:grid-cols-2">
         {items.length === 0 ? (
           <p className="text-center py-12 text-muted-foreground col-span-full">Estoque vazio</p>
-        ) : items.map((e) => (
+        ) : items.filter((e) =>
+          e.nome_peca.toLowerCase().includes(searchTerm.toLowerCase())
+        ).length === 0 ? (
+          <p className="text-center py-12 text-muted-foreground col-span-full">Nenhuma peça encontrada</p>
+        ) : items.filter((e) =>
+          e.nome_peca.toLowerCase().includes(searchTerm.toLowerCase())
+        ).map((e) => (
           <div key={e.id} className="rounded-xl border bg-card p-4 flex items-center gap-3">
             <div className="flex-1 min-w-0">
               <p className="font-medium text-foreground truncate">{e.nome_peca || 'Sem nome'}</p>
