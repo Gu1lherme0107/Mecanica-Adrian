@@ -191,6 +191,9 @@ export function saveToIndexedDB(): Promise<void> {
   return new Promise((resolve, reject) => {
     if (!db) return resolve();
     try {
+      // Disparar evento de sincronização começando
+      window.dispatchEvent(new CustomEvent('db-sync-start'));
+      
       const data = db.export();
       const request = indexedDB.open('MecanicaERP', 1);
       
@@ -213,24 +216,42 @@ export function saveToIndexedDB(): Promise<void> {
             console.log('✓ Banco salvo no IndexedDB');
             // Também salvar em localStorage como backup
             saveToLocalStorage();
+            
+            // Disparar evento de sucesso
+            window.dispatchEvent(new CustomEvent('db-sync-success', {
+              detail: { message: 'Dados salvos com sucesso' }
+            }));
+            
             resolve();
           };
           tx.onerror = () => {
             console.error('❌ Erro ao salvar no IndexedDB:', tx.error);
+            window.dispatchEvent(new CustomEvent('db-sync-error', {
+              detail: { error: String(tx.error) }
+            }));
             reject(tx.error);
           };
         } catch (e) {
           console.error('❌ Erro na transação:', e);
+          window.dispatchEvent(new CustomEvent('db-sync-error', {
+            detail: { error: String(e) }
+          }));
           reject(e);
         }
       };
       
       request.onerror = () => {
         console.error('❌ Erro ao abrir IndexedDB:', request.error);
+        window.dispatchEvent(new CustomEvent('db-sync-error', {
+          detail: { error: String(request.error) }
+        }));
         reject(request.error);
       };
     } catch (e) {
       console.error('❌ Erro ao exportar banco:', e);
+      window.dispatchEvent(new CustomEvent('db-sync-error', {
+        detail: { error: String(e) }
+      }));
       reject(e);
     }
   });

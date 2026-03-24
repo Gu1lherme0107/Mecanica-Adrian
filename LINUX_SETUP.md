@@ -59,7 +59,7 @@ Se quiser acessar de outro PC/celular na mesma rede:
 **Na máquina Linux rodando o sistema:**
 ```bash
 # Execute isto no terminal
-./node_modules/.bin/serve -s dist -l 0.0.0.0:8080
+./node_modules/.bin/serve -s dist -l 0.0.0.0:8081
 ```
 
 **No outro dispositivo:**
