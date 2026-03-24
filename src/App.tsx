@@ -9,9 +9,30 @@ import Servicos from "./pages/Servicos";
 import AgendaPage from "./pages/AgendaPage";
 import EstoquePage from "./pages/EstoquePage";
 import BackupPage from "./pages/BackupPage";
+import DebugPage from "./pages/DebugPage";
 import NotFound from "./pages/NotFound";
+import { useAutoSave, useSyncOnVisibility, useSyncBeforeUnload } from "./hooks/useAutoSave";
 
 const queryClient = new QueryClient();
+
+function AppContent() {
+  // Ativar auto-save e sincronização
+  useAutoSave(10000); // A cada 10 segundos
+  useSyncOnVisibility();
+  useSyncBeforeUnload();
+
+  return (
+    <Routes>
+      <Route path="/" element={<Dashboard />} />
+      <Route path="/servicos" element={<Servicos />} />
+      <Route path="/agenda" element={<AgendaPage />} />
+      <Route path="/estoque" element={<EstoquePage />} />
+      <Route path="/backup" element={<BackupPage />} />
+      <Route path="/debug" element={<DebugPage />} />
+      <Route path="*" element={<NotFound />} />
+    </Routes>
+  );
+}
 
 const App = () => (
   <ThemeProvider>
@@ -20,14 +41,7 @@ const App = () => (
         <Sonner />
         <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
           <AppLayout>
-            <Routes>
-              <Route path="/" element={<Dashboard />} />
-              <Route path="/servicos" element={<Servicos />} />
-              <Route path="/agenda" element={<AgendaPage />} />
-              <Route path="/estoque" element={<EstoquePage />} />
-              <Route path="/backup" element={<BackupPage />} />
-              <Route path="*" element={<NotFound />} />
-            </Routes>
+            <AppContent />
           </AppLayout>
         </BrowserRouter>
       </TooltipProvider>
