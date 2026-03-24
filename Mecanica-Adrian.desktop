@@ -1,0 +1,11 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Mecânica Adrian - Sistema ERP
+Comment=Sistema de gerenciamento da oficina (Funciona Offline)
+Exec=bash -c 'cd "$(dirname "$0")" && npm run build > /dev/null 2>&1 && ./node_modules/.bin/serve -s dist -l 8080 > /dev/null 2>&1 &' && sleep 2 && xdg-open http://localhost:8080
+Path=/home/seu_usuario/Mecanica-Adrian
+Icon=applications-engineering
+Categories=Business;Office;
+Terminal=false
+StartupNotify=true
