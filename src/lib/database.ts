@@ -4,7 +4,7 @@ let db: Database | null = null;
 const DB_KEY = 'mecanica_erp_db';
 const LS_KEY = 'mecanica_erp_db_backup'; // Backup em localStorage
 
-async function getDb(): Promise<Database> {
+export async function getDb(): Promise<Database> {
   if (db) return db;
 
   const SQL = await initSqlJs({
@@ -182,7 +182,7 @@ function saveToLocalStorage(): void {
     localStorage.setItem(LS_KEY, encodedData);
     console.log('✓ Banco salvo em localStorage (backup)');
   } catch (e) {
-    console.warn('⚠️ Erro ao salvar em localStorage (arquivo pode ser grande):', e);
+    console.warn('⚠️ Erro ao salvar em localStorage:', e);
     // Quotas de localStorage geralmente são pequenas, então é ok falhar silenciosamente
   }
 }
