@@ -187,7 +187,7 @@ function saveToLocalStorage(): void {
   }
 }
 
-function saveToIndexedDB(): Promise<void> {
+export function saveToIndexedDB(): Promise<void> {
   return new Promise((resolve, reject) => {
     if (!db) return resolve();
     try {

@@ -3,6 +3,7 @@ import { Link, useLocation } from 'react-router-dom';
 import { LayoutDashboard, Wrench, CalendarDays, Package, Database, Menu, X, Sun, Moon } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useTheme } from '@/contexts/ThemeContext';
+import SyncIndicator from './SyncIndicator';
 
 const navItems = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard },
@@ -10,6 +11,7 @@ const navItems = [
   { to: '/agenda', label: 'Agenda', icon: CalendarDays },
   { to: '/estoque', label: 'Estoque', icon: Package },
   { to: '/backup', label: 'Backup', icon: Database },
+  { to: '/debug', label: '🔧 Debug', icon: Menu },
 ];
 
 export default function AppLayout({ children }: { children: ReactNode }) {
@@ -91,6 +93,9 @@ export default function AppLayout({ children }: { children: ReactNode }) {
           {children}
         </main>
       </div>
+
+      {/* Sync Indicator */}
+      <SyncIndicator />
     </div>
   );
 }

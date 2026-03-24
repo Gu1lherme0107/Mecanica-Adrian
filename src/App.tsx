@@ -11,15 +11,13 @@ import EstoquePage from "./pages/EstoquePage";
 import BackupPage from "./pages/BackupPage";
 import DebugPage from "./pages/DebugPage";
 import NotFound from "./pages/NotFound";
-import { useAutoSave, useSyncOnVisibility, useSyncBeforeUnload } from "./hooks/useAutoSave";
+import { useAutoSave } from "./hooks/useAutoSave";
 
 const queryClient = new QueryClient();
 
 function AppContent() {
-  // Ativar auto-save e sincronização
-  useAutoSave(10000); // A cada 10 segundos
-  useSyncOnVisibility();
-  useSyncBeforeUnload();
+  // Ativar auto-save
+  useAutoSave(5000); // A cada 5 segundos
 
   return (
     <Routes>
