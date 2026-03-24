@@ -2,6 +2,7 @@ import initSqlJs, { Database } from 'sql.js';
 
 let db: Database | null = null;
 const DB_KEY = 'mecanica_erp_db';
+const LS_KEY = 'mecanica_erp_db_backup'; // Backup em localStorage
 
 async function getDb(): Promise<Database> {
   if (db) return db;
@@ -10,17 +11,25 @@ async function getDb(): Promise<Database> {
     locateFile: () => '/sql-wasm.wasm',
   });
 
-  // Try to load from IndexedDB
-  const savedData = await loadFromIndexedDB();
+  // Try to load from IndexedDB primeiro
+  let savedData = await loadFromIndexedDB();
+  
+  // Se não encontrou no IndexedDB, tentar localStorage (fallback)
+  if (!savedData) {
+    console.log('📂 Tentando carregar backup do localStorage...');
+    savedData = loadFromLocalStorage();
+  }
+
   if (savedData) {
     try {
       db = new SQL.Database(new Uint8Array(savedData));
-      console.log('✓ Banco carregado com sucesso do IndexedDB');
+      console.log('✓ Banco carregado com sucesso');
     } catch (e) {
       console.log('⚠️ Erro ao carregar banco anterior, criando novo');
       db = new SQL.Database();
-      // Limpar IndexedDB corrompido
+      // Limpar streams corrompidas
       await clearIndexedDB();
+      clearLocalStorage();
     }
   } else {
     console.log('🆕 Criando novo banco de dados');
@@ -122,9 +131,60 @@ async function getDb(): Promise<Database> {
 function clearIndexedDB(): Promise<void> {
   return new Promise((resolve) => {
     const request = indexedDB.deleteDatabase('MecanicaERP');
-    request.onsuccess = () => resolve();
-    request.onerror = () => resolve();
+    request.onsuccess = () => {
+      console.log('✓ IndexedDB limpo');
+      resolve();
+    };
+    request.onerror = () => {
+      console.warn('⚠️ Erro ao limpar IndexedDB');
+      resolve();
+    };
   });
+}
+
+function clearLocalStorage(): void {
+  try {
+    localStorage.removeItem(LS_KEY);
+    console.log('✓ localStorage limpo');
+  } catch (e) {
+    console.warn('⚠️ Erro ao limpar localStorage:', e);
+  }
+}
+
+function loadFromLocalStorage(): ArrayBuffer | null {
+  try {
+    const data = localStorage.getItem(LS_KEY);
+    if (!data) {
+      console.log('⚠️ Nenhum backup em localStorage');
+      return null;
+    }
+    // Decodificar base64 para ArrayBuffer
+    const binaryString = atob(data);
+    const bytes = new Uint8Array(binaryString.length);
+    for (let i = 0; i < binaryString.length; i++) {
+      bytes[i] = binaryString.charCodeAt(i);
+    }
+    console.log('✓ Banco carregado do localStorage (backup)');
+    return bytes.buffer;
+  } catch (e) {
+    console.error('❌ Erro ao ler localStorage:', e);
+    return null;
+  }
+}
+
+function saveToLocalStorage(): void {
+  try {
+    if (!db) return;
+    const data = db.export();
+    // Codificar para base64 para armazenar em localStorage
+    const binaryString = String.fromCharCode.apply(null, Array.from(data));
+    const encodedData = btoa(binaryString);
+    localStorage.setItem(LS_KEY, encodedData);
+    console.log('✓ Banco salvo em localStorage (backup)');
+  } catch (e) {
+    console.warn('⚠️ Erro ao salvar em localStorage (arquivo pode ser grande):', e);
+    // Quotas de localStorage geralmente são pequenas, então é ok falhar silenciosamente
+  }
 }
 
 function saveToIndexedDB(): Promise<void> {
@@ -146,12 +206,13 @@ function saveToIndexedDB(): Promise<void> {
         try {
           const tx = idb.transaction('database', 'readwrite');
           const store = tx.objectStore('database');
-          // Converter Uint8Array para Blob para melhor compatibilidade
-          const blob = new Blob([data], { type: 'application/octet-stream' });
-          store.put(blob, DB_KEY);
+          // Usar Uint8Array em vez de Blob
+          store.put(data, DB_KEY);
           
           tx.oncomplete = () => {
             console.log('✓ Banco salvo no IndexedDB');
+            // Também salvar em localStorage como backup
+            saveToLocalStorage();
             resolve();
           };
           tx.onerror = () => {
@@ -195,17 +256,16 @@ function loadFromIndexedDB(): Promise<ArrayBuffer | null> {
           
           getReq.onsuccess = () => {
             const result = getReq.result;
-            if (result instanceof Blob) {
-              result.arrayBuffer().then((buffer) => {
-                console.log('✓ Banco carregado do IndexedDB');
-                resolve(buffer);
-              }).catch((e) => {
-                console.error('❌ Erro ao ler Blob:', e);
-                resolve(null);
-              });
-            } else if (result && result instanceof ArrayBuffer) {
+            if (result instanceof Uint8Array) {
+              console.log('✓ Banco carregado do IndexedDB');
+              resolve(result.buffer);
+            } else if (result instanceof ArrayBuffer) {
               console.log('✓ Banco carregado do IndexedDB (ArrayBuffer)');
               resolve(result);
+            } else if (result) {
+              // Pode ser Blob ou outro tipo
+              console.warn('⚠️ Tipo de dado desconhecido no IndexedDB:', typeof result);
+              resolve(null);
             } else {
               console.log('⚠️ Banco não encontrado no IndexedDB (primeira execução)');
               resolve(null);
