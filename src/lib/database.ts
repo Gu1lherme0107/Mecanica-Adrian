@@ -26,63 +26,24 @@ async function getDb(): Promise<Database> {
     db = new SQL.Database();
   }
 
-  // Sempre garantir que as tabelas têm o schema correto
-  try {
-    // Tentar executar uma query com a nova coluna
-    db.exec(`SELECT valor_mao_obra FROM servicos LIMIT 0`);
-    console.log('Tabela servicos já tem coluna valor_mao_obra');
-  } catch (e) {
-    console.log('Migrando schema da tabela servicos...');
-    // Se falhar, tabela precisa ser migrada
-    try {
-      // Backup dos dados antigos
-      const servicos = db.exec(`SELECT * FROM servicos`)[0]?.values || [];
-      console.log('Dados antigos:', servicos.length);
-      
-      // Deletar tabela antiga
-      db.run(`DROP TABLE IF EXISTS servicos;`);
-      
-      // Criar tabela nova com schema correto
-      db.run(`
-        CREATE TABLE servicos (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          cliente_nome TEXT DEFAULT '',
-          cliente_telefone TEXT DEFAULT '',
-          carro_modelo TEXT DEFAULT '',
-          data_chegada TEXT DEFAULT '',
-          data_entrega TEXT DEFAULT '',
-          orcamento_privado TEXT DEFAULT '',
-          status_servico TEXT DEFAULT 'Aguardando',
-          valor_total REAL DEFAULT 0,
-          valor_pago REAL DEFAULT 0,
-          valor_mao_obra REAL DEFAULT 0,
-          peca_list TEXT DEFAULT '[]',
-          created_at TEXT DEFAULT (datetime('now','localtime'))
-        );
-      `);
-      
-      // Restaurar dados antigos se houver
-      if (servicos.length > 0) {
-        for (const row of servicos) {
-          db.run(
-            `INSERT INTO servicos (id, cliente_nome, cliente_telefone, carro_modelo, data_chegada, data_entrega, orcamento_privado, status_servico, valor_total, valor_pago, valor_mao_obra, peca_list, created_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, '[]', ?)`,
-            [row[0], row[1], row[2], row[3], row[4], row[5], row[6], row[7], row[8], row[9], row[10] || new Date().toISOString()]
-          );
-        }
-      }
-      console.log('Migração concluída');
-    } catch (migError) {
-      console.error('Erro na migração:', migError);
-      // Se mesmo assim falhar, criar tabelas novas do zero
-      try {
-        db.run(`DROP TABLE IF EXISTS servicos;`);
-      } catch (e) { }
-    }
-  }
-
-  // Criar tabelas se não existirem
+  // PRIMEIRO: Criar todas as tabelas base (evita erros em first-run)
   db.run(`
+    CREATE TABLE IF NOT EXISTS servicos (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      cliente_nome TEXT DEFAULT '',
+      cliente_telefone TEXT DEFAULT '',
+      carro_modelo TEXT DEFAULT '',
+      data_chegada TEXT DEFAULT '',
+      data_entrega TEXT DEFAULT '',
+      orcamento_privado TEXT DEFAULT '',
+      status_servico TEXT DEFAULT 'Aguardando',
+      valor_total REAL DEFAULT 0,
+      valor_pago REAL DEFAULT 0,
+      valor_mao_obra REAL DEFAULT 0,
+      peca_list TEXT DEFAULT '[]',
+      created_at TEXT DEFAULT (datetime('now','localtime'))
+    );
+
     CREATE TABLE IF NOT EXISTS agenda (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       data_agendada TEXT DEFAULT '',
@@ -101,6 +62,56 @@ async function getDb(): Promise<Database> {
       created_at TEXT DEFAULT (datetime('now','localtime'))
     );
   `);
+
+  // DEPOIS: Verificar e fazer migrações de schema
+  try {
+    // Tentar executar uma query com a coluna de migração
+    db.exec(`SELECT valor_mao_obra FROM servicos LIMIT 0`);
+    console.log('✓ Schema das tabelas está atualizado');
+  } catch (e) {
+    console.log('⚠️ Migrando schema das tabelas...');
+    try {
+      // Backup dos dados antigos
+      const servicos = db.exec(`SELECT * FROM servicos`)[0]?.values || [];
+      if (servicos.length > 0) {
+        console.log('Backup de', servicos.length, 'registros realizado');
+        
+        // Deletar tabela antiga
+        db.run(`DROP TABLE servicos;`);
+        
+        // Criar tabela nova com schema correto
+        db.run(`
+          CREATE TABLE servicos (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            cliente_nome TEXT DEFAULT '',
+            cliente_telefone TEXT DEFAULT '',
+            carro_modelo TEXT DEFAULT '',
+            data_chegada TEXT DEFAULT '',
+            data_entrega TEXT DEFAULT '',
+            orcamento_privado TEXT DEFAULT '',
+            status_servico TEXT DEFAULT 'Aguardando',
+            valor_total REAL DEFAULT 0,
+            valor_pago REAL DEFAULT 0,
+            valor_mao_obra REAL DEFAULT 0,
+            peca_list TEXT DEFAULT '[]',
+            created_at TEXT DEFAULT (datetime('now','localtime'))
+          );
+        `);
+        
+        // Restaurar dados antigos
+        for (const row of servicos) {
+          db.run(
+            `INSERT INTO servicos (id, cliente_nome, cliente_telefone, carro_modelo, data_chegada, data_entrega, orcamento_privado, status_servico, valor_total, valor_pago, valor_mao_obra, peca_list, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, '[]', ?)`,
+            [row[0], row[1], row[2], row[3], row[4], row[5], row[6], row[7], row[8], row[9], row[10] || new Date().toISOString()]
+          );
+        }
+        console.log('✓ Migração concluída com sucesso');
+      }
+    } catch (migError) {
+      console.log('✓ Banco novo criado (sem migração necessária)');
+    }
+  }
 
   await saveToIndexedDB();
   return db;
